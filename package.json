@@ -1,0 +1,376 @@
+{
+  "name": "sovereignmind-preflight",
+  "displayName": "SovereignMind Preflight",
+  "description": "Preflight vor dem Push (Build, Tests, Sonar) und Installer-Build für SovereignMind: Play-Button, Schritte, Verlauf und Log für KI-Analyse.",
+  "version": "0.4.0",
+  "publisher": "sovereignmind",
+  "license": "SEE LICENSE IN LICENSE",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "workspaceContains:Support/scripts/pre-push.sh",
+    "workspaceContains:Support/scripts/create_installer/create-installer.sh",
+    "workspaceContains:scripts/prepush.sh"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sovereignmind.run",
+        "title": "SovereignMind Preflight: Ausführen / Stoppen",
+        "icon": "$(play)"
+      },
+      {
+        "command": "sovereignmind.openLog",
+        "title": "SovereignMind Preflight: Letztes Log öffnen"
+      },
+      {
+        "command": "sovereignmind.copyLogPath",
+        "title": "SovereignMind Preflight: Log-Pfad kopieren"
+      },
+      {
+        "command": "sovereignmind.copyForAI",
+        "title": "SovereignMind Preflight: Fehler für KI kopieren"
+      },
+      {
+        "command": "sovereignmind.configureSonar",
+        "title": "SovereignMind Preflight: Sonar-Server und Token einrichten",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "sovereignmind.clearToken",
+        "title": "SovereignMind Preflight: Sonar-Token entfernen"
+      },
+      {
+        "command": "sovereignmind.openLogAt",
+        "title": "SovereignMind Preflight: Log öffnen"
+      },
+      {
+        "command": "sovereignmind.openJson",
+        "title": "SovereignMind Preflight: JSON öffnen"
+      },
+      {
+        "command": "sovereignmind.refresh",
+        "title": "SovereignMind Preflight: Aktualisieren",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sovereignmind.initTemplate",
+        "title": "SovereignMind Preflight: Vorlage im Repo anlegen"
+      },
+      {
+        "command": "sovereignmind.toggleSonar",
+        "title": "SovereignMind Preflight: Sonar-Schritt an/aus"
+      },
+      {
+        "command": "sovereignmind.toggleSonarGate",
+        "title": "SovereignMind Preflight: Quality Gate hart/weich"
+      },
+      {
+        "command": "sovereignmind.installer.focus",
+        "title": "SovereignMind Installer: Ansicht öffnen"
+      },
+      {
+        "command": "sovereignmind.installer.play",
+        "title": "SovereignMind Installer: Erstellen",
+        "icon": "$(play)"
+      },
+      {
+        "command": "sovereignmind.installer.stop",
+        "title": "SovereignMind Installer: Stoppen",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "sovereignmind.installer.recheck",
+        "title": "SovereignMind Installer: Voraussetzungen neu prüfen",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "sovereignmind.installer.openLog",
+        "title": "SovereignMind Installer: Letztes Log öffnen"
+      },
+      {
+        "command": "sovereignmind.installer.copyLogPath",
+        "title": "SovereignMind Installer: Log-Pfad kopieren"
+      },
+      {
+        "command": "sovereignmind.installer.copyForAI",
+        "title": "SovereignMind Installer: Fehler für KI kopieren"
+      },
+      {
+        "command": "sovereignmind.installer.openFolder",
+        "title": "SovereignMind Installer: Installer-Ordner öffnen",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "sovereignmind.installer.cleanStaging",
+        "title": "SovereignMind Installer: Staging aufräumen"
+      },
+      {
+        "command": "sovereignmind.installer.copyPath",
+        "title": "SovereignMind Installer: Pfad kopieren"
+      },
+      {
+        "command": "sovereignmind.installer.copySha",
+        "title": "SovereignMind Installer: SHA-256 kopieren"
+      },
+      {
+        "command": "sovereignmind.installer.reveal",
+        "title": "SovereignMind Installer: Im Explorer anzeigen"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "sovereignmind.run",
+          "when": "view == sovereignmind.current",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sovereignmind.refresh",
+          "when": "view == sovereignmind.history",
+          "group": "navigation"
+        },
+        {
+          "command": "sovereignmind.configureSonar",
+          "when": "view == sovereignmind.sonar",
+          "group": "navigation"
+        },
+        {
+          "command": "sovereignmind.installer.recheck",
+          "when": "view == sovereignmind.installer.platforms",
+          "group": "navigation"
+        },
+        {
+          "command": "sovereignmind.installer.openFolder",
+          "when": "view == sovereignmind.installer.result",
+          "group": "navigation"
+        },
+        {
+          "command": "sovereignmind.refresh",
+          "when": "view == sovereignmind.installer.history",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "sovereignmind.installer.play",
+          "when": "view == sovereignmind.installer.platforms && viewItem == installerVariant",
+          "group": "inline"
+        },
+        {
+          "command": "sovereignmind.installer.stop",
+          "when": "view == sovereignmind.installer.platforms && viewItem == installerVariantRunning",
+          "group": "inline"
+        },
+        {
+          "command": "sovereignmind.openJson",
+          "when": "viewItem == historyRun"
+        },
+        {
+          "command": "sovereignmind.installer.openFolder",
+          "when": "view == sovereignmind.installer.result && viewItem == artifactFile",
+          "group": "1_nav@1"
+        },
+        {
+          "command": "sovereignmind.installer.reveal",
+          "when": "viewItem == artifactFile",
+          "group": "1_nav@2"
+        },
+        {
+          "command": "sovereignmind.installer.copyPath",
+          "when": "viewItem == artifactFile",
+          "group": "2_copy@1"
+        },
+        {
+          "command": "sovereignmind.installer.copySha",
+          "when": "viewItem == artifactFile",
+          "group": "2_copy@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "sovereignmind.openLogAt",
+          "when": "false"
+        },
+        {
+          "command": "sovereignmind.openJson",
+          "when": "false"
+        },
+        {
+          "command": "sovereignmind.toggleSonar",
+          "when": "false"
+        },
+        {
+          "command": "sovereignmind.toggleSonarGate",
+          "when": "false"
+        },
+        {
+          "command": "sovereignmind.installer.play",
+          "when": "false"
+        },
+        {
+          "command": "sovereignmind.installer.stop",
+          "when": "false"
+        },
+        {
+          "command": "sovereignmind.installer.copyPath",
+          "when": "false"
+        },
+        {
+          "command": "sovereignmind.installer.copySha",
+          "when": "false"
+        },
+        {
+          "command": "sovereignmind.installer.reveal",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SovereignMind Preflight",
+      "properties": {
+        "sovereignmind.preflight.scriptPath": {
+          "type": "string",
+          "default": "Support/scripts/pre-push.sh",
+          "description": "Preflight-Skript relativ zum Repo-Root. Fehlt es, wird scripts/prepush.sh versucht (andere Repos)."
+        },
+        "sovereignmind.installer.scriptPath": {
+          "type": "string",
+          "default": "Support/scripts/create_installer/create-installer.sh",
+          "description": "Installer-Skript relativ zum Repo-Root."
+        },
+        "sovereignmind.shell": {
+          "type": "string",
+          "default": "bash",
+          "description": "Shell für die Skripte. Unter Windows bei \"bash\" wird Git Bash gesucht, sonst der Pfad verwendet."
+        },
+        "sovereignmind.sonarHostUrl": {
+          "type": "string",
+          "default": "http://localhost:9000",
+          "description": "Sonar-Server-URL (SONAR_HOST_URL)."
+        },
+        "sovereignmind.preflight.sonar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Sonar-Schritt im Preflight ausführen (SONAR=1|0)."
+        },
+        "sovereignmind.preflight.sonarGate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Rotes Quality Gate bricht den Lauf ab (SONAR_GATE=1|0)."
+        },
+        "sovereignmind.installer.minFreeGbFull": {
+          "type": "number",
+          "default": 60,
+          "description": "Empfohlener freier Platz in GB für einen Build der Variante Full. Darunter erscheint vor dem Start eine Warnung."
+        },
+        "sovereignmind.installer.minFreeGbMinimal": {
+          "type": "number",
+          "default": 25,
+          "description": "Empfohlener freier Platz in GB für einen Build der Variante Minimal (Schätzung). Darunter erscheint vor dem Start eine Warnung."
+        },
+        "sovereignmind.installer.dryRun": {
+          "type": "boolean",
+          "default": false,
+          "description": "Installer nur als Trockenlauf starten (--dry-run): Befehle werden angezeigt, nichts gebaut. Zum Testen der Ansicht."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sovereignmind",
+          "title": "SovereignMind",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "sovereignmind": [
+        {
+          "id": "sovereignmind.current",
+          "name": "Preflight: Aktueller Lauf"
+        },
+        {
+          "id": "sovereignmind.history",
+          "name": "Preflight: Verlauf"
+        },
+        {
+          "id": "sovereignmind.sonar",
+          "name": "Sonar"
+        },
+        {
+          "id": "sovereignmind.installer.options",
+          "name": "Installer: Optionen",
+          "type": "webview",
+          "when": "sovereignmind.installer.available"
+        },
+        {
+          "id": "sovereignmind.installer.platforms",
+          "name": "Installer: Plattformen",
+          "when": "sovereignmind.installer.available"
+        },
+        {
+          "id": "sovereignmind.installer.current",
+          "name": "Installer: Aktueller Lauf",
+          "when": "sovereignmind.installer.available"
+        },
+        {
+          "id": "sovereignmind.installer.result",
+          "name": "Installer: Ergebnis",
+          "when": "sovereignmind.installer.available"
+        },
+        {
+          "id": "sovereignmind.installer.history",
+          "name": "Installer: Verlauf",
+          "when": "sovereignmind.installer.available"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "sovereignmind.current",
+        "contents": "Noch kein Lauf.\n[Preflight starten](command:sovereignmind.run)",
+        "when": "sovereignmind.available"
+      },
+      {
+        "view": "sovereignmind.current",
+        "contents": "Weder Support/scripts/pre-push.sh noch scripts/prepush.sh im Workspace gefunden.\n[Vorlage im Repo anlegen](command:sovereignmind.initTemplate)",
+        "when": "!sovereignmind.available"
+      },
+      {
+        "view": "sovereignmind.installer.current",
+        "contents": "Noch kein Lauf.\n[Plattformen anzeigen](command:sovereignmind.installer.focus)\n[Staging aufräumen](command:sovereignmind.installer.cleanStaging)",
+        "when": "sovereignmind.installer.available"
+      },
+      {
+        "view": "sovereignmind.installer.result",
+        "contents": "Noch kein Ergebnis (dist/installer/last-build.json).",
+        "when": "sovereignmind.installer.available"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=dist/extension.js",
+    "watch": "npm run build -- --watch",
+    "typecheck": "tsc --noEmit",
+    "package": "npm run build && vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/benexdrake/sovereignmind-extension.git"
+  }
+}

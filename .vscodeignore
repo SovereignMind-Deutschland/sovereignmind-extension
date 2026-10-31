@@ -1,0 +1,6 @@
+src/**
+node_modules/**
+.prepush/**
+tsconfig.json
+**/*.map
+docs/**

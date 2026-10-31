@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.vsix
+.prepush/
+.env
+!.env.example
+scripts/.env
+!scripts/.env.example
