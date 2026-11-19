@@ -6,7 +6,11 @@ import { RunLogger, loadSecrets, loadSecretsDeep, RunResult, RunKind, runDir, mi
 import { OptionsViewProvider, loadOptions, optionsError, buildOptionArgs } from './optionsView';
 import { PrepushViews, openLogAt, openJsonForLog, artifactPath, artifactSha } from './views';
 
-interface Repo { folder: vscode.WorkspaceFolder; script: string; }
+/**
+ * Ein startbares Ziel. `root` ist der Ordner für Log und Verlauf (`.prepush/`), `cwd` das Arbeitsverzeichnis des Skripts,
+ * `args` die festen Argumente (Preflight im Meta-Repo: der Repo-Name), `meta` das Meta-Repo, falls eines erkannt wurde.
+ */
+interface Repo { folder: vscode.WorkspaceFolder; script: string; root: string; cwd: string; args: string[]; label: string; meta?: string; }
 
 let running: { proc: ChildProcess; cancelled: boolean; kind: RunKind; params?: Record<string, unknown> } | undefined;
 let output: vscode.OutputChannel;
@@ -135,28 +139,95 @@ async function clearToken(): Promise<void> {
 function cfg() { return vscode.workspace.getConfiguration('sovereignmind'); }
 
 const LEGACY_SCRIPT = 'scripts/prepush.sh';
+const LEGACY_PREFLIGHT = 'Support/scripts/pre-push.sh';
+const LEGACY_INSTALLER = 'Support/scripts/create_installer/create-installer.sh';
+const META_PREFLIGHT = 'repos/support/scripts/pre-push.sh';
+const META_INSTALLER = 'repos/support/scripts/create_installer/create-installer.sh';
+const DEFAULT_ALL_REPOS = ['customer', 'admin', 'tool', 'shared', 'ingestion', 'voice', 'support'];
+const LAST_REPO_KEY = 'sovereignmind.preflight.lastRepo';
 
-/** Workspace-Ordner mit Skript der Art: konfigurierter Pfad (Preflight zusätzlich scripts/prepush.sh für andere Repos). */
-function findRepos(kind: RunKind = 'preflight'): Repo[] {
-    const rel = kind === 'installer'
-        ? cfg().get<string>('installer.scriptPath', 'Support/scripts/create_installer/create-installer.sh')
-        : cfg().get<string>('preflight.scriptPath', 'Support/scripts/pre-push.sh');
-    const candidates = kind === 'installer' ? [rel] : [rel, LEGACY_SCRIPT];
-    return (vscode.workspace.workspaceFolders ?? []).flatMap(folder => {
-        const script = candidates
-            .map(r => path.join(folder.uri.fsPath, r))
-            .find(f => fs.existsSync(f));
-        return script ? [{ folder, script }] : [];
-    });
+/** Meta-Repo (enthält repos.json und scripts/paths.sh) über `dir` und höchstens vier Elternordner. */
+function findMeta(dir: string): string | undefined {
+    let d = dir;
+    for (let i = 0; i < 5; i++) {
+        if (fs.existsSync(path.join(d, 'repos.json')) && fs.existsSync(path.join(d, 'scripts', 'paths.sh'))) { return d; }
+        const parent = path.dirname(d);
+        if (parent === d) { break; }
+        d = parent;
+    }
+    return undefined;
 }
 
-async function pickRepo(kind: RunKind): Promise<Repo | undefined> {
+/** Verzeichnisnamen der Einzel-Repos: aus repos.json, sonst die Ordner unter repos/ mit .git. */
+function metaRepoDirs(meta: string): string[] {
+    let dirs: string[] = [];
+    try {
+        dirs = (JSON.parse(fs.readFileSync(path.join(meta, 'repos.json'), 'utf8')).repos ?? [])
+            .map((r: { dir?: unknown }) => String(r.dir ?? '')).filter(Boolean);
+    } catch { /* repos.json unlesbar: Ordner suchen */ }
+    if (!dirs.length) {
+        try {
+            dirs = fs.readdirSync(path.join(meta, 'repos'), { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name);
+        } catch { /* kein repos/ */ }
+    }
+    return dirs.filter(d => fs.existsSync(path.join(meta, 'repos', d, '.git')) || fs.existsSync(path.join(meta, 'repos', d)));
+}
+
+/**
+ * Startbare Ziele der Art. Im Meta-Repo (oder darunter) kommt das Skript aus repos/support; ein geöffnetes Einzel-Repo
+ * (repos/<name>) liefert nur sich selbst, der Meta-Ordner jedes Repo einzeln. Ohne Meta-Repo gilt der alte Pfad im Ordner.
+ */
+function findRepos(kind: RunKind = 'preflight'): Repo[] {
+    const rel = kind === 'installer'
+        ? cfg().get<string>('installer.scriptPath', META_INSTALLER)
+        : cfg().get<string>('preflight.scriptPath', META_PREFLIGHT);
+    const legacy = kind === 'installer' ? [LEGACY_INSTALLER] : [LEGACY_PREFLIGHT, LEGACY_SCRIPT];
+    const seen = new Set<string>();
+    const out: Repo[] = [];
+    const add = (r: Repo) => {
+        const key = `${r.root}\0${r.args.join(' ')}`;
+        if (!seen.has(key)) { seen.add(key); out.push(r); }
+    };
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+        const dir = folder.uri.fsPath;
+        const meta = findMeta(dir);
+        const script = [...(meta ? [rel, kind === 'installer' ? META_INSTALLER : META_PREFLIGHT].map(r => path.join(meta, r)) : []),
+            ...[rel, ...legacy].map(r => path.join(dir, r))].find(f => fs.existsSync(f));
+        if (!script) { continue; }
+        if (!meta) { add({ folder, script, root: dir, cwd: dir, args: [], label: folder.name }); continue; }
+        if (kind === 'installer') { add({ folder, script, root: meta, cwd: meta, args: [], label: path.basename(meta) }); continue; }
+        const dirs = metaRepoDirs(meta);
+        const within = path.relative(path.join(meta, 'repos'), dir);
+        const current = within && !within.startsWith('..') && !path.isAbsolute(within) ? within.split(path.sep)[0] : undefined;
+        for (const name of current && dirs.includes(current) ? [current] : dirs) {
+            add({ folder, script, root: path.join(meta, 'repos', name), cwd: meta, args: [name], label: name, meta });
+        }
+    }
+    return out;
+}
+
+/** Vorbelegtes Repo für Ansichten und Log: zuletzt gelaufen, sonst zuletzt gewählt, sonst das erste. */
+function currentRepo(kind: RunKind): Repo | undefined {
+    if (lastRepo[kind]) { return lastRepo[kind]; }
+    const all = findRepos(kind);
+    const saved = kind === 'preflight' ? state?.get<string>(LAST_REPO_KEY) : undefined;
+    return all.find(r => r.label === saved) ?? all[0];
+}
+
+/** Auswahl: ein einzelnes Repo, oder (nur Preflight im Meta-Repo) „Alle“ als Folge. Leer = abgebrochen. */
+async function pickRepos(kind: RunKind): Promise<Repo[] | undefined> {
     const repos = findRepos(kind);
-    if (repos.length <= 1) { return repos[0]; }
-    const pick = await vscode.window.showQuickPick(
-        repos.map(r => ({ label: r.folder.name, repo: r })),
+    if (repos.length <= 1) { return repos; }
+    const names = cfg().get<string[]>('preflight.allRepos', DEFAULT_ALL_REPOS);
+    const all = kind === 'preflight' ? repos.filter(r => r.meta && names.includes(r.label)) : [];
+    type Item = vscode.QuickPickItem & { repos: Repo[] };
+    const items: Item[] = [
+        ...(all.length > 1 ? [{ label: '$(run-all) Alle Repos nacheinander', description: all.map(r => r.label).join(', '), repos: all }] : []),
+        ...repos.map(r => ({ label: r.label, description: r.meta ? path.relative(r.meta, r.root) : undefined, repos: [r] }))
+    ];
+    const pick = await vscode.window.showQuickPick(items,
         { placeHolder: kind === 'installer' ? 'Repo für Installer wählen' : 'Repo für Preflight wählen' });
-    return pick?.repo;
+    return pick?.repos;
 }
 
 const KIND_TEXT: Record<RunKind, string> = { preflight: 'Preflight', installer: 'Installer' };
@@ -174,9 +245,12 @@ function git(cwd: string, ...args: string[]): string {
     try { return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim(); } catch { return ''; }
 }
 
-function allSecrets(root: string, script: string, sonarToken: string): string[] {
-    return [...loadSecrets(path.dirname(script)), ...loadSecrets(path.join(root, '.git', 'prepush-tools'), 'sonar.env'),
-        ...loadSecretsDeep(path.join(root, 'Support')), ...(sonarToken ? [sonarToken] : [])];
+function allSecrets(repo: Repo, sonarToken: string): string[] {
+    const base = repo.meta ?? repo.root;
+    return [...loadSecrets(path.dirname(repo.script)), ...loadSecrets(path.join(base, '.prepush-tools'), 'sonar.env'),
+        ...loadSecrets(path.join(repo.root, '.git', 'prepush-tools'), 'sonar.env'),
+        ...loadSecretsDeep(path.join(base, 'repos', 'support')), ...loadSecretsDeep(path.join(base, 'Support')),
+        ...(sonarToken ? [sonarToken] : [])];
 }
 
 function busyHint(): boolean {
@@ -186,17 +260,38 @@ function busyHint(): boolean {
     return true;
 }
 
+/** Folge von Preflight-Läufen („Alle Repos“): ein Lauf je Repo, bei Fehlern geht es mit dem nächsten weiter. */
+let batch: { queue: Repo[]; results: Array<{ label: string; result: RunResult }>; env: NodeJS.ProcessEnv; token: string } | undefined;
+
+function startPreflight(repo: Repo, env: NodeJS.ProcessEnv, token: string): void {
+    void state.update(LAST_REPO_KEY, repo.label);
+    startRun('preflight', repo, repo.args, env, allSecrets(repo, token), repo.meta ? { repo: repo.label } : undefined);
+}
+
+function batchDone(label: string, result: RunResult): void {
+    const b = batch;
+    if (!b) { return; }
+    b.results.push({ label, result });
+    const next = result === 'cancelled' ? undefined : b.queue.shift();
+    if (next) { setTimeout(() => startPreflight(next, b.env, b.token), 0); return; }
+    batch = undefined;
+    if (result === 'cancelled') { return; }
+    const bad = b.results.filter(r => r.result !== 'success').map(r => r.label);
+    const text = `Preflight aller Repos: ${b.results.length - bad.length} von ${b.results.length} erfolgreich${bad.length ? `, fehlgeschlagen: ${bad.join(', ')}` : ''}.`;
+    if (bad.length) { vscode.window.showErrorMessage(text); } else { vscode.window.showInformationMessage(text); }
+}
+
 async function run(): Promise<void> {
     if (running) {
         if (running.kind === 'preflight') { running.cancelled = true; killTree(running.proc); } else { busyHint(); }
         return;
     }
-    const repo = await pickRepo('preflight');
-    if (!repo) {
-        vscode.window.showWarningMessage('Kein Preflight-Skript (Support/scripts/pre-push.sh oder scripts/prepush.sh) im Workspace gefunden.');
+    const repos = await pickRepos('preflight');
+    if (!repos) { return; }
+    if (!repos.length) {
+        vscode.window.showWarningMessage('Kein Preflight-Skript (repos/support/scripts/pre-push.sh oder scripts/prepush.sh) gefunden. Meta-Repo oder ein Repo darunter öffnen.');
         return;
     }
-    const root = repo.folder.uri.fsPath;
     const sonar = await sonarEnv();
     const env: NodeJS.ProcessEnv = {
         ...process.env,
@@ -206,15 +301,16 @@ async function run(): Promise<void> {
     };
     if (sonar.url) { env.SONAR_HOST_URL = sonar.url; }
     if (sonar.token) { env.SONAR_TOKEN = sonar.token; }
-    startRun('preflight', repo, [], env, allSecrets(root, repo.script, sonar.token));
+    if (repos.length > 1) { batch = { queue: repos.slice(1), results: [], env, token: sonar.token }; }
+    startPreflight(repos[0], env, sonar.token);
 }
 
 /** Startet ein Skript, schreibt Log und JSON und meldet das Ende. Nur ein Lauf gleichzeitig. */
 function startRun(kind: RunKind, repo: Repo, args: string[], env: NodeJS.ProcessEnv, secretValues: string[],
     params?: Record<string, unknown>, onDone?: (result: RunResult) => Record<string, unknown> | void): void {
     lastRepo[kind] = repo;
-    const root = repo.folder.uri.fsPath;
-    const logger = new RunLogger(root, path.relative(root, repo.script), secretValues, kind, params);
+    const root = repo.root;
+    const logger = new RunLogger(root, path.relative(repo.cwd, repo.script), secretValues, kind, params);
     liveLogger[kind] = logger;
     logger.onUpdate = () => views.refreshLive(kind);
 
@@ -223,13 +319,13 @@ function startRun(kind: RunKind, repo: Repo, args: string[], env: NodeJS.Process
     views.refresh();
 
     // Relativer Pfad mit '/': Git Bash muss so keine Backslashes und Leerzeichen des Windows-Pfads auflösen.
-    const rel = path.relative(root, repo.script).split(path.sep).join('/');
+    const rel = path.relative(repo.cwd, repo.script).split(path.sep).join('/');
     if (args.length) {
         const head = `Lauf: ${rel} ${args.join(' ')}`;
         logger.addLine(head);
         output.appendLine(logger.mask(head));
     }
-    const proc = spawn(resolveShell(), [rel, ...args], { cwd: root, detached: true, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(resolveShell(), [rel, ...args], { cwd: repo.cwd, detached: true, env, stdio: ['ignore', 'pipe', 'pipe'] });
     const self = { proc, cancelled: false, kind, params };
     running = self;
     void vscode.commands.executeCommand('setContext', 'sovereignmind.running', true);
@@ -257,6 +353,7 @@ function startRun(kind: RunKind, repo: Repo, args: string[], env: NodeJS.Process
             { params, ...(extra ?? {}) });
         views.refresh();
         const name = KIND_TEXT[kind];
+        if (kind === 'preflight' && batch) { batchDone(repo.label, result); return; }
         if (result === 'failed') {
             vscode.window.showErrorMessage(`${name} fehlgeschlagen.`, 'Log öffnen', 'Für KI kopieren').then(a => {
                 if (a === 'Log öffnen') { void openLog(kind); }
@@ -284,10 +381,9 @@ const LEGACY_CHOICE_KEY = 'sovereignmind.installer.lastChoice';
 
 /** `--check` je Ziel: Gründe für nicht nutzbare Ziele (leerer Text = nutzbar). Blockiert den Extension Host nicht (unter WSL dauert die Prüfung Sekunden). */
 function checkTargetsAsync(repo: Repo, mode: string): Promise<Record<string, string>> {
-    const root = repo.folder.uri.fsPath;
     return new Promise(resolve => {
-        execFile(resolveShell(), [path.relative(root, repo.script).split(path.sep).join('/'), '--check', '--mode', mode],
-            { cwd: root, encoding: 'utf8', timeout: 120000 },
+        execFile(resolveShell(), [path.relative(repo.cwd, repo.script).split(path.sep).join('/'), '--check', '--mode', mode],
+            { cwd: repo.cwd, encoding: 'utf8', timeout: 120000 },
             (_err, stdout) => resolve(parseCheck(`${stdout ?? ''}`)));   // Exit 1 bei Lücken ist normal
     });
 }
@@ -342,13 +438,13 @@ async function playInstaller(item?: { target?: string; variant?: string }): Prom
     const { target, variant } = item ?? {};
     if (!target || (variant !== 'full' && variant !== 'minimal')) { return; }
     if (busyHint()) { return; }
-    const repo = await pickRepo('installer');
+    const repo = (await pickRepos('installer'))?.[0];
     if (!repo) {
-        vscode.window.showWarningMessage('Kein Installer-Skript (Support/scripts/create_installer/create-installer.sh) im Workspace gefunden.');
+        vscode.window.showWarningMessage('Kein Installer-Skript (repos/support/scripts/create_installer/create-installer.sh) gefunden. Meta-Repo oder ein Repo darunter öffnen.');
         return;
     }
     const dryRun = cfg().get<boolean>('installer.dryRun', false);
-    const root = repo.folder.uri.fsPath;
+    const root = repo.root;
     // Gespeicherte Werte gelten auch, wenn die Optionen-Ansicht nie geöffnet wurde.
     const opts = loadOptions(state);
     const optError = optionsError(opts);
@@ -364,7 +460,7 @@ async function playInstaller(item?: { target?: string; variant?: string }): Prom
     if (dryRun) { args.push('--dry-run'); }
     const sonar = await sonarEnv();
     const startedMs = Date.now();
-    startRun('installer', repo, args, { ...process.env, PREPUSH_MARKERS: '1' }, allSecrets(root, repo.script, sonar.token),
+    startRun('installer', repo, args, { ...process.env, PREPUSH_MARKERS: '1' }, allSecrets(repo, sonar.token),
         { target, variant, mode: 'full', version: opts.versionOn ? opts.version : undefined,
             fetch: opts.fetch, keepStaging: opts.keepStaging, dryRun },
         () => {
@@ -381,7 +477,7 @@ function stopInstaller(): void {
 }
 
 function installerRoot(): string | undefined {
-    return (lastRepo.installer ?? findRepos('installer')[0])?.folder.uri.fsPath;
+    return currentRepo('installer')?.root;
 }
 
 async function openInstallerFolder(): Promise<void> {
@@ -417,7 +513,7 @@ async function cleanStaging(): Promise<void> {
 }
 
 function logFile(kind: RunKind, name: string): string | undefined {
-    const root = (lastRepo[kind] ?? findRepos(kind)[0])?.folder.uri.fsPath;
+    const root = currentRepo(kind)?.root;
     if (root && kind === 'preflight') { migrateLegacyLayout(root); }
     return root ? path.join(runDir(root, kind), name) : undefined;
 }
@@ -434,10 +530,13 @@ async function copyLogPath(kind: RunKind = 'preflight'): Promise<void> {
 }
 
 async function copyForAI(kind: RunKind = 'preflight'): Promise<void> {
-    const text = kind === 'installer'
-        ? 'Der Installer-Build (Support/scripts/create_installer/create-installer.sh) ist fehlgeschlagen. Analysiere .prepush/installer/last-run.json und bei Bedarf den Bereich logRange in .prepush/installer/last-run.log und behebe die Ursache.'
-        : 'Der Preflight-Check (Support/scripts/pre-push.sh) ist fehlgeschlagen. Analysiere .prepush/preflight/last-run.json und bei Bedarf den Bereich logRange in .prepush/preflight/last-run.log und behebe die Ursache.';
-    await vscode.env.clipboard.writeText(text);
+    const repo = currentRepo(kind);
+    const dir = repo ? runDir(repo.root, kind) : `.prepush/${kind}`;
+    const script = repo ? path.relative(repo.cwd, repo.script).split(path.sep).join('/') : '';
+    const what = kind === 'installer' ? 'Der Installer-Build' : `Der Preflight-Check${repo?.meta ? ` für ${repo.label}` : ''}`;
+    await vscode.env.clipboard.writeText(
+        `${what} (${script}) ist fehlgeschlagen. Analysiere ${path.join(dir, 'last-run.json')} und bei Bedarf den Bereich logRange in ` +
+        `${path.join(dir, 'last-run.log')} und behebe die Ursache.`);
     vscode.window.showInformationMessage('Anweisung für KI kopiert.');
 }
 
@@ -452,13 +551,14 @@ export function activate(context: vscode.ExtensionContext): void {
         platformStatus: () => platformStatus,
         runningVariant: () => running?.kind === 'installer' && typeof running.params?.target === 'string'
             ? { target: running.params.target, variant: String(running.params.variant) } : undefined,
-        repoRoot: kind => (lastRepo[kind] ?? findRepos(kind)[0])?.folder.uri.fsPath,
+        repoRoot: kind => currentRepo(kind)?.root,
         live: kind => liveLogger[kind]?.snapshot(),
         sonar: async () => {
             const s = await sonarEnv();
-            const repo = lastRepo.preflight ?? findRepos()[0];
+            const repo = currentRepo('preflight');
             const envHas = !!repo && (loadSecrets(path.dirname(repo.script)).length > 0 ||
-                loadSecrets(path.join(repo.folder.uri.fsPath, '.git', 'prepush-tools'), 'sonar.env').length > 0);
+                loadSecrets(path.join(repo.meta ?? repo.root, '.prepush-tools'), 'sonar.env').length > 0 ||
+                loadSecrets(path.join(repo.root, '.git', 'prepush-tools'), 'sonar.env').length > 0);
             return {
                 url: s.url, tokenSource: s.token ? 'sidebar' : envHas ? 'env' : 'none',
                 enabled: cfg().get<boolean>('preflight.sonar', true), gateHard: cfg().get<boolean>('preflight.sonarGate', true)

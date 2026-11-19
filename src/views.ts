@@ -34,7 +34,7 @@ const RESULT_ICON: Record<string, vscode.ThemeIcon> = {
 
 function paramsText(p?: Record<string, unknown>): string {
     if (!p) { return ''; }
-    return [p.target, p.variant, p.mode, p.version].filter(v => typeof v === 'string' && v).join('/');
+    return [p.repo, p.target, p.variant, p.mode, p.version].filter(v => typeof v === 'string' && v).join('/');
 }
 
 const RESULT_TEXT: Record<string, string> = {
@@ -97,7 +97,7 @@ class CurrentProvider extends Provider<vscode.TreeItem> {
         const snap: RunSnapshot | undefined = live ?? (() => {
             const j = readJson(path.join(dir, 'last-run.json'));
             return j && { result: j.result, steps: j.steps ?? [], link: j.link, logPath: path.join(dir, 'last-run.log'),
-                startedAt: j.startedAt, durationSec: j.durationSec, branch: j.branch };
+                startedAt: j.startedAt, durationSec: j.durationSec, branch: j.branch, params: j.params };
         })();
         if (!snap) { return []; }
         const head = new vscode.TreeItem(RESULT_TEXT[snap.result] ?? snap.result);
@@ -115,7 +115,7 @@ class HistoryItem extends vscode.TreeItem {
     constructor(public readonly base: string, public readonly data: any) {
         super(new Date(data.startedAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' }), vscode.TreeItemCollapsibleState.Collapsed);
         this.iconPath = RESULT_ICON[data.result] ?? RESULT_ICON.unknown;
-        this.description = [data.kind === 'installer' ? paramsText(data.params) : data.branch, fmtDuration(data.durationSec)]
+        this.description = [data.kind === 'installer' ? paramsText(data.params) : [data.params?.repo, data.branch].filter(Boolean).join(' · '), fmtDuration(data.durationSec)]
             .filter(Boolean).join(' · ');
         this.tooltip = `${data.kind === 'installer' ? paramsText(data.params) : data.branch ?? data.repo}\n${RESULT_TEXT[data.result] ?? data.result}${data.failedStep ? ` (Schritt: ${data.failedStep})` : ''}`;
         this.contextValue = 'historyRun';

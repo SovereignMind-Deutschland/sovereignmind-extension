@@ -1,5 +1,5 @@
 // Baut die Extension mit Copyright-Banner (docs/pläne/code-schutz-ki im Repo sovereignmind, Phase 2).
-// Der Text liegt nur dort: ../sovereignmind/Support/legal/ausgabe-hinweis.txt (oder SM_HINWEIS_DATEI).
+// Der Text liegt im Support-Repo: ../support/legal/ausgabe-hinweis.txt (Nachbar unter repos/, oder SM_HINWEIS_DATEI).
 // `/*!` bleibt auch beim Minify erhalten (minify: true, code-schutz-ki Phase 3). Aufruf: node scripts/banner.mjs [--watch]
 // Phase 4: nach dem esbuild-Lauf läuft javascript-obfuscator über dist/extension.js (nur eigene Datei, kein --watch-Lauf,
 // siehe obfuskieren() unten). stringArray bleibt aus: esbuild (minify:true) entfernt gewöhnliche Kommentare, daher
@@ -12,12 +12,12 @@ import { build, context } from "esbuild";
 import JavaScriptObfuscator from "javascript-obfuscator";
 
 const hier = dirname(fileURLToPath(import.meta.url));
-const textDatei = process.env.SM_HINWEIS_DATEI ?? resolve(hier, "../../sovereignmind/Support/legal/ausgabe-hinweis.txt");
+const textDatei = process.env.SM_HINWEIS_DATEI ?? resolve(hier, "../../support/legal/ausgabe-hinweis.txt");
 let text;
 try {
   text = readFileSync(textDatei, "utf8").trim();
 } catch {
-  console.error(`Hinweistext fehlt: ${textDatei}\nRepo sovereignmind daneben auschecken oder SM_HINWEIS_DATEI setzen.`);
+  console.error(`Hinweistext fehlt: ${textDatei}\nRepo support daneben auschecken (repos/support) oder SM_HINWEIS_DATEI setzen.`);
   process.exit(1);
 }
 if (!text || text.includes("*/")) { console.error(`Ungültiger Hinweistext in ${textDatei}`); process.exit(1); }

@@ -2,7 +2,7 @@
   "name": "sovereignmind-preflight",
   "displayName": "SovereignMind Preflight",
   "description": "Preflight vor dem Push (Build, Tests, Sonar) und Installer-Build für SovereignMind: Play-Button, Schritte, Verlauf und Log für KI-Analyse.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "sovereignmind",
   "license": "SEE LICENSE IN LICENSE",
   "private": true,
@@ -13,6 +13,8 @@
     "Other"
   ],
   "activationEvents": [
+    "onStartupFinished",
+    "workspaceContains:repos/support/scripts/pre-push.sh",
     "workspaceContains:Support/scripts/pre-push.sh",
     "workspaceContains:Support/scripts/create_installer/create-installer.sh",
     "workspaceContains:scripts/prepush.sh"
@@ -237,13 +239,29 @@
       "properties": {
         "sovereignmind.preflight.scriptPath": {
           "type": "string",
-          "default": "Support/scripts/pre-push.sh",
-          "description": "Preflight-Skript relativ zum Repo-Root. Fehlt es, wird scripts/prepush.sh versucht (andere Repos)."
+          "default": "repos/support/scripts/pre-push.sh",
+          "description": "Preflight-Skript relativ zum Meta-Repo (wird auch von einem geöffneten Repo unter repos/ aus gefunden). Fehlt es, wird Support/scripts/pre-push.sh bzw. scripts/prepush.sh im geöffneten Ordner versucht."
         },
         "sovereignmind.installer.scriptPath": {
           "type": "string",
-          "default": "Support/scripts/create_installer/create-installer.sh",
-          "description": "Installer-Skript relativ zum Repo-Root."
+          "default": "repos/support/scripts/create_installer/create-installer.sh",
+          "description": "Installer-Skript relativ zum Meta-Repo."
+        },
+        "sovereignmind.preflight.allRepos": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "customer",
+            "admin",
+            "tool",
+            "shared",
+            "ingestion",
+            "voice",
+            "support"
+          ],
+          "description": "Repos, die „Alle Repos nacheinander“ im Meta-Repo durchläuft (wie npm run prepush)."
         },
         "sovereignmind.shell": {
           "type": "string",
@@ -341,7 +359,7 @@
       },
       {
         "view": "sovereignmind.current",
-        "contents": "Weder Support/scripts/pre-push.sh noch scripts/prepush.sh im Workspace gefunden.\n[Vorlage im Repo anlegen](command:sovereignmind.initTemplate)",
+        "contents": "Weder repos/support/scripts/pre-push.sh (Meta-Repo oder ein Repo darunter öffnen) noch scripts/prepush.sh gefunden.\n[Vorlage im Repo anlegen](command:sovereignmind.initTemplate)",
         "when": "!sovereignmind.available"
       },
       {

@@ -13,13 +13,14 @@ Jeder Lauf schreibt ein Log, das auch eine KI lesen kann. Die Extension enthält
 
 | Was | Wofür |
 |---|---|
-| Repo `sovereignmind` als Workspace | Aktivierung bei `Support/scripts/pre-push.sh` oder `Support/scripts/create_installer/create-installer.sh` |
+| Meta-Repo `sovereignmind` als Workspace | Aktivierung bei `repos/support/scripts/pre-push.sh`. Preflight: Auswahl eines Repos oder „Alle Repos nacheinander“, Installer unverändert |
+| Ein Repo unter `repos/` als Workspace (z. B. `repos/customer`) | Die Extension findet das Meta-Repo über `repos.json` und startet den Preflight direkt für dieses Repo |
 | `bash` (Windows: Git Bash, wird gesucht) | beide Skripte |
 | Sonar-Server (`npm run sonar:up`, Standard `http://localhost:9000`) | Sonar-Schritt im Preflight; ohne Server den Schritt ausschalten (Sonar-Ansicht) |
 | Installer: dotnet, node, Inno Setup (Windows) bzw. `dpkg-deb` / `rpmbuild` (Debian/RPM, unter Windows über WSL) | Die Plattformliste prüft das vorab mit `create-installer.sh --check`; nicht nutzbare Ziele sind mit Grund markiert |
 | Installer: bis ca. 60 GB freier Platz, mehrere Stunden | `full` braucht den Modell-Cache |
 
-Ohne diese Skripte bleibt die Extension inaktiv. In anderen Repos mit `scripts/prepush.sh` läuft der Preflight weiter, der Installer-Bereich fehlt dort.
+Ohne Meta-Repo und Skripte bleibt die Extension inaktiv (altes Layout `Support/scripts/...` im geöffneten Ordner geht weiter). In anderen Repos mit `scripts/prepush.sh` läuft der Preflight weiter, der Installer-Bereich fehlt dort.
 
 ## Installation
 
@@ -59,8 +60,9 @@ Zum Ausprobieren der Ansicht ohne Build: Einstellung `sovereignmind.installer.dr
 
 | Setting | Standard | Bedeutung |
 |---|---|---|
-| `sovereignmind.preflight.scriptPath` | `Support/scripts/pre-push.sh` | Preflight-Skript relativ zum Repo-Root (Ersatz: `scripts/prepush.sh`) |
-| `sovereignmind.installer.scriptPath` | `Support/scripts/create_installer/create-installer.sh` | Installer-Skript |
+| `sovereignmind.preflight.scriptPath` | `repos/support/scripts/pre-push.sh` | Preflight-Skript relativ zum Meta-Repo (Ersatz: `Support/scripts/pre-push.sh`, `scripts/prepush.sh`) |
+| `sovereignmind.preflight.allRepos` | `customer, admin, tool, shared, ingestion, voice, support` | Repos für „Alle Repos nacheinander“ |
+| `sovereignmind.installer.scriptPath` | `repos/support/scripts/create_installer/create-installer.sh` | Installer-Skript relativ zum Meta-Repo |
 | `sovereignmind.shell` | `bash` | Shell; unter Windows wird bei `bash` Git Bash gesucht |
 | `sovereignmind.sonarHostUrl` | `http://localhost:9000` | Sonar-Server (`SONAR_HOST_URL`) |
 | `sovereignmind.preflight.sonar` | an | Sonar-Schritt ausführen (`SONAR=1\|0`) |
@@ -80,7 +82,7 @@ Pro Art im Repo unter `.prepush/` (in der `.gitignore`):
 .prepush/installer/...             # dasselbe, zusätzlich params und artifacts
 ```
 
-Der alte Pfad `.prepush/last-run.*` wird beim ersten Lauf nach `preflight/` verschoben. Werte aus allen `*.env` unter `Support/` bzw. `scripts/`, der Sonar-Token sowie `sonar.token=…` und `Authorization:`-Header werden vor dem Schreiben durch `***` ersetzt.
+Der alte Pfad `.prepush/last-run.*` wird beim ersten Lauf nach `preflight/` verschoben. Werte aus allen `*.env` unter `repos/support/`, `Support/` bzw. `scripts/`, der Sonar-Token sowie `sonar.token=…` und `Authorization:`-Header werden vor dem Schreiben durch `***` ersetzt.
 
 ### Marker in den Skripten
 
@@ -102,8 +104,8 @@ Diesen Block in die `CLAUDE.md` des Repos aufnehmen:
 ````markdown
 ## Preflight und Installer-Build
 
-Die VS-Code-Extension „SovereignMind Preflight“ startet `Support/scripts/pre-push.sh` und
-`Support/scripts/create_installer/create-installer.sh` und schreibt Logs nach `.prepush/preflight/` bzw. `.prepush/installer/` (nicht versioniert).
+Die VS-Code-Extension „SovereignMind Preflight“ startet `repos/support/scripts/pre-push.sh <repo>` und
+`repos/support/scripts/create_installer/create-installer.sh` und schreibt Logs nach `<repo>/.prepush/preflight/` bzw. `<meta>/.prepush/installer/` (nicht versioniert).
 
 **Bei Fehlern in dieser Reihenfolge lesen:**
 
